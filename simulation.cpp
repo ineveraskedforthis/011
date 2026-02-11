@@ -360,7 +360,7 @@ bool request_new_building(dcon::user_id user, dcon::building_type_id building_ty
 	if (!state.building_type_is_valid(building_type)) return false;
 
 	auto count = 0;
-	state.user_for_each_ownership(user, [&]{count++});
+	state.user_for_each_ownership(user, [&](auto o){count++;});
 
 	if (count > 1000) return false;
 	if (state.building_size() > 10000) return false;
