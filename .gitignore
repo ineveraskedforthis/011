@@ -2,9 +2,9 @@ flags*
 libmicrohttpd*
 .ninja_log
 cache*
-build*
 compile_commands.json
 compdb.json
 .cache
 011
 phc-winner*
+.salt

@@ -1,0 +1,44 @@
+cpp_compiler = clang++
+c_compier = clang
+cpp_standard = -std=c++20
+basic_flags =  -MD -MF
+
+rule get_libmicrohttpd
+  command = wget https://ftp.gnu.org/gnu/libmicrohttpd/libmicrohttpd-1.0.2.tar.gz
+
+build libmicrohttpd-1.0.2.tar.gz : get_libmicrohttpd
+
+rule extract_libmicrohttpd
+  command = tar -xvzf $in && touch flags/http_lib_extracted
+
+build flags/http_lib_extracted : extract_libmicrohttpd libmicrohttpd-1.0.2.tar.gz
+
+rule build_libmicrohttpd
+  command = cd libmicrohttpd-1.0.2 && ./configure CC=clang && make && touch ../flags/http_lib_built
+
+build flags/http_lib_built : build_libmicrohttpd flags/http_lib_extracted
+
+includes = -I./libmicrohttpd-1.0.2/src/include -I./phc-winner-argon2/include
+libs_paths = -L../011/libmicrohttpd-1.0.2/src/microhttpd/.libs/ -L../011/phc-winner-argon2/
+libs = -Wl,-Bstatic -lmicrohttpd -largon2 -Wl,-Bdynamic
+
+rule clone_argon
+  command = git clone https://github.com/P-H-C/phc-winner-argon2.git && touch flags/argon_cloned
+
+build flags/argon_cloned : clone_argon
+
+rule build_argon
+  command = cd phc-winner-argon2 && make CC=clang && touch ../flags/argon_built
+
+build flags/argon_built : build_argon flags/argon_cloned
+
+rule ccpp_server
+  command = $cpp_compiler $cpp_standard $basic_flags $out.d  $includes -c $in -o $out
+  depfile = $out.d
+
+rule link_server
+  command = $cpp_compiler $cpp_standard $in $libs_paths $libs -o $out
+
+build cache/011.o : ccpp_server main.cpp | flags/http_lib_built flags/argon_cloned
+
+build 011 : link_server cache/011.o | flags/argon_built
