@@ -1,0 +1,190 @@
+global{no-conversions}
+
+object{
+	name{user}
+	size{10000}
+	storage_type{erasable}
+	property{
+		name{wealth}
+		type{__uint128_t}
+	}
+
+	property{
+		name{name}
+		type{uint32_t}
+	}
+
+	property{
+		name{pwd_hash}
+		type{array{uint8_t}{uint8_t}}
+	}
+
+	property{
+		name{storage}
+		type{array{commodity_id}{int32_t}}
+	}
+	property{
+		name{max_storage}
+		type{array{commodity_id}{int32_t}}
+	}
+}
+
+object{
+	name{commodity}
+	size{500}
+	storage_type{erasable}
+
+	property{
+		name{name}
+		type{uint32_t}
+	}
+	property{
+		name{inversed_density}
+		type{uint32_t}
+	}
+}
+
+object{
+	name{activity}
+	property{
+		name{name}
+		type{uint32_t}
+	}
+	property{
+		name{required_power}
+		type{float}
+	}
+	property{
+		name{produced_power}
+		type{float}
+	}
+	property{
+		name{input_amount}
+		type{array{uint8_t}{int32_t}}
+	}
+	property{
+		name{input}
+		type{array{uint8_t}{commodity_id}}
+	}
+	property{
+		name{output_amount}
+		type{array{uint8_t}{int32_t}}
+	}
+	property{
+		name{output}
+		type{array{uint8_t}{commodity_id}}
+	}
+	property{
+		name{operation_tick_per_production_tick}
+		type{int32_t}
+	}
+}
+
+object{
+	name{building_type}
+	size{300}
+	storage_type{erasable}
+	property{
+		name{name}
+		type{uint32_t}
+	}
+	property{
+		name{activities}
+		type{array{uint8_t}{activity_id}}
+	}
+
+	property{
+		name{construction_amount}
+		type{array{uint8_t}{int32_t}}
+	}
+	property{
+		name{construction}
+		type{array{uint8_t}{commodity_id}}
+	}
+}
+
+object{
+	name{building}
+	size{30000}
+	storage_type{erasable}
+	property{
+		name{building_type}
+		type{building_type_id}
+	}
+	property{
+		name{power}
+		type{float}
+	}
+	property{
+		name{construction_progress}
+		type{array{uint8_t}{float}}
+	}
+	property{
+		name{operation_tick}
+		type{int32_t}
+	}
+}
+
+relationship{
+	name{ownership}
+	size{30000}
+	storage_type{erasable}
+
+	link{
+		object{building}
+		name{owned}
+		type{unique}
+	}
+	link{
+		object{user}
+		name{owner}
+		type{many}
+	}
+	composite_key{
+		name{ownership_pair}
+		index{owned}
+		index{owner}
+	}
+}
+
+object{
+	name{contract}
+	size{300000}
+	storage_type{erasable}
+	property{
+		name{desired_transfer}
+		type{array{commodity_id}{int32_t}}
+	}
+}
+
+relationship{
+	name{contract_initiator}
+	size{30000}
+	storage_type{erasable}
+	link{
+		object{contract}
+		name{contract}
+		type{unique}
+	}
+	link{
+		object{user}
+		name{initiator}
+		type{many}
+	}
+}
+
+relationship{
+	name{contract_partner}
+	size{30000}
+	storage_type{erasable}
+	link{
+		object{contract}
+		name{contract}
+		type{unique}
+	}
+	link{
+		object{user}
+		name{partner}
+		type{many}
+	}
+}

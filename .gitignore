@@ -8,3 +8,7 @@ compdb.json
 011
 phc-winner*
 .salt
+data.hpp
+data_ids.hpp
+DCON
+.vs*

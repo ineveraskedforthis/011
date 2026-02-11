@@ -10,17 +10,26 @@
 
 #include "argon2.h"
 
+#include "data_ids.hpp"
+#include "simulation.hpp"
+
+#include "constants.hpp"
+
 static const std::string errorpage =  "<html><body>Error page.</body></html>";
 
-static const std::string MAIN_STATIC_PAGE = "<html><head><title>Consent required.</title></head><body>We have to store your data to link your session cookie with in-game entity. We use data only for the in-game purposes. If you agree, pressing the  login button will generate a cookie and will allow you to interact with the game.<br><form action=\"/new_user\" method=\"post\"><label for=\"name\">Username:</label><input type=\"text\" name=\"name\" required /><br><label for=\"password\">Password</label><input type=\"password\" name=\"password\" required /><br><input type=\"submit\" value=\"Sign in\"/></form> </body></html>";
+static const std::string MAIN_STATIC_PAGE = "<html><head><title>Consent required.</title></head><body>We have to store your data to link your session cookie with in-game entity. We use data only for the in-game purposes. If you agree, pressing the  login button will generate a cookie and will allow you to interact with the game.<form action=\"/new_user\" method=\"post\"><label for=\"name\">Username:</label><input type=\"text\" name=\"name\" required /><label for=\"password\">Password</label><input type=\"password\" name=\"password\" required /><input type=\"submit\" value=\"Sign in\"/></form> </body></html>";
 
-static const std::string SUCCESS_NEW_USER_PAGE = "<html><head><title>Consent granted.</title></head><body><br><form action=\"/report\" method=\"get\"><input type=\"submit\" value=\"Get back to report\"/></form> </body></html>";
+static const std::string SUCCESS_NEW_USER_PAGE = "<html><head><title>Consent granted</title></head><body><br><form action=\"/report\" method=\"get\"><input type=\"submit\" value=\"Get back to report\"/></form> </body></html>";
 
-std::string make_report(std::string name) {
+std::string make_report(dcon::user_id user) {
+	if(!user) {
+		return "<html><head><title>Error</title></head><body>Invalid credentials</body></html>";
+	}
+
 	const auto now = std::chrono::system_clock::now();
 	auto time_string = std::format("{:%Y-%m-%d %H:%M}", now);
 
-	return "<html><head><title>Control panel.</title></head><body><h1>Welcome, " + name + "</h1><h2>Production report (per tick)</h2>20 units of Basic Ore<br>30 units of Basic Material<br> Report generated at " + time_string + " </body></html>";
+	return "<html><head><title>Control panel</title></head><body><h1>Welcome, " + retrieve_user_name(user) + "</h1>" + retrieve_user_report_body(user) + "<footer> Report generated at " + time_string + "</footer></body></html>";
 }
 
 MHD_Result print_out_key (
@@ -34,10 +43,7 @@ MHD_Result print_out_key (
 }
 
 
-static constexpr size_t HASHLEN = 32;
-static constexpr size_t SALTLEN = 16;
 static char salt[SALTLEN];
-static constexpr size_t MAXNAMESIZE = 32;
 
 enum class connection_type {
 	post, get
@@ -51,9 +57,9 @@ struct connection_info_struct
 	std::string answerstring;
 	struct MHD_PostProcessor *postprocessor;
 
-	bool name_flag;
-	bool password_flag;
-	bool user_created;
+	bool name_flag = false;
+	bool password_flag = false;
+	dcon::user_id user;
 };
 
 
@@ -98,9 +104,8 @@ iterate_post (
 	}
 
 	if (con_info->name_flag && con_info->password_flag) {
-		con_info->user_created = true;
-		con_info->answerstring = make_report(con_info->name);
-  		return MHD_NO;
+		con_info->user = create_or_get_user(con_info->name, con_info->password_hash);
+		con_info->answerstring = make_report(con_info->user);
 	}
 
 	return MHD_YES;
@@ -125,6 +130,25 @@ request_completed (
 }
 
 #define POSTBUFFERSIZE  512
+
+static enum MHD_Result
+send_page_from_memory (
+	struct MHD_Connection *connection,
+	const char* page,
+	int status_code
+) {
+	enum MHD_Result ret;
+	struct MHD_Response *response;
+	response = MHD_create_response_from_buffer (
+		strlen (page),
+		(void*) page,
+		MHD_RESPMEM_PERSISTENT
+	);
+	if (!response) return MHD_NO;
+	ret = MHD_queue_response (connection, status_code, response);
+	MHD_destroy_response (response);
+	return ret;
+}
 
 static enum MHD_Result
 ahc_echo(
@@ -183,8 +207,8 @@ ahc_echo(
 		connection_info_struct *con_info = (connection_info_struct*) *req_cls;
 
 		// auto page = make_main_page();
-		if (con_info->user_created) {
-			auto page = make_report(con_info->name);
+		if (con_info->user) {
+			auto page = make_report(con_info->user);
 			response = MHD_create_response_from_buffer (
 				strlen(page.c_str()),
 				(void*) page.c_str(),
@@ -222,7 +246,8 @@ ahc_echo(
 				);
 				*upload_data_size = 0;
 				return MHD_YES;
-			} else if (con_info->user_created) {
+			}
+			if (con_info->user) {
 				response = MHD_create_response_from_buffer (
 					strlen(con_info->answerstring.c_str()),
 					(void*) con_info->answerstring.c_str(),
@@ -235,7 +260,14 @@ ahc_echo(
 				);
 				MHD_destroy_response(response);
 				return ret;
+			}  else {
+				return send_page_from_memory(
+					connection,
+					errorpage.c_str(),
+					MHD_HTTP_BAD_REQUEST
+				);
 			}
+
 		}
 		return MHD_NO;
 	} else {
@@ -259,6 +291,8 @@ main(
 	int argc,
 	char ** argv
 ) {
+	init_simulation();
+
 	FILE * salt_container = fopen(".salt", "r");
 	if( salt_container ) {
 		fread(salt, 1, 10, salt_container);

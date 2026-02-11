@@ -1,7 +1,29 @@
 cpp_compiler = clang++
 c_compier = clang
 cpp_standard = -std=c++20
-basic_flags =  -MD -MF
+depfile_flags =  -MD -MF
+
+
+dcon_includes_common = -I./DataContainer/CommonIncludes
+dcon_includes = -I./DataContainer/DataContainerGenerator
+rule clone_dcon
+  command = (git clone -b to_upstream --single-branch https://github.com/ineveraskedforthis/DataContainer.git) || (cd DataContainer && git pull origin master && cd ..) && touch flags/dcon_cloned
+rule compile_dcon
+  command = $cpp_compiler $cpp_standard $dcon_includes $dcon_includes_common -ferror-limit=1 DataContainer/DataContainerGenerator/DataContainerGenerator.cpp DataContainer/DataContainerGenerator/parsing.cpp DataContainer/DataContainerGenerator/code_fragments.cpp DataContainer/DataContainerGenerator/query_fragments.cpp DataContainer/DataContainerGenerator/object_member_fragments.cpp DataContainer/DataContainerGenerator/serialize_fragments.cpp -o $out
+rule use
+  command = ./DCON $in
+  restat = 1
+
+build flags/dcon_cloned : clone_dcon
+build DataContainer/CommonIncludes/common_types.cpp : phony flags/dcon_cloned
+build DCON : compile_dcon flags/dcon_cloned
+build data.hpp | data_ids.hpp : use ./data.txt | DCON
+
+rule ccpp_dcon_common
+  command = $cpp_compiler $cpp_standard $depfile_flags $out.d  $includes -c $in -o $out
+  depfile = $out.d
+
+build cache/dcon_common.o : ccpp_dcon_common DataContainer/CommonIncludes/common_types.cpp | flags/dcon_cloned
 
 rule get_libmicrohttpd
   command = wget https://ftp.gnu.org/gnu/libmicrohttpd/libmicrohttpd-1.0.2.tar.gz
@@ -20,7 +42,7 @@ build flags/http_lib_built : build_libmicrohttpd flags/http_lib_extracted
 
 includes = -I./libmicrohttpd-1.0.2/src/include -I./phc-winner-argon2/include
 libs_paths = -L../011/libmicrohttpd-1.0.2/src/microhttpd/.libs/ -L../011/phc-winner-argon2/
-libs = -Wl,-Bstatic -lmicrohttpd -largon2 -Wl,-Bdynamic
+libs = -Wl,-Bstatic -lmicrohttpd -largon2 -Wl,-Bdynamic -ltbb
 
 rule clone_argon
   command = git clone https://github.com/P-H-C/phc-winner-argon2.git && touch flags/argon_cloned
@@ -33,12 +55,13 @@ rule build_argon
 build flags/argon_built : build_argon flags/argon_cloned
 
 rule ccpp_server
-  command = $cpp_compiler $cpp_standard $basic_flags $out.d  $includes -c $in -o $out
+  command = $cpp_compiler $cpp_standard -g -DPREFER_ONE_TBB -mavx2 $depfile_flags  $out.d  $includes $dcon_includes_common -c $in -o $out
   depfile = $out.d
 
 rule link_server
-  command = $cpp_compiler $cpp_standard $in $libs_paths $libs -o $out
+  command = $cpp_compiler $cpp_standard -g $in $libs_paths $libs -o $out
 
 build cache/011.o : ccpp_server main.cpp | flags/http_lib_built flags/argon_cloned
+build cache/simulation.o : ccpp_server simulation.cpp | data_ids.hpp data.hpp
 
-build 011 : link_server cache/011.o | flags/argon_built
+build 011 : link_server cache/011.o cache/dcon_common.o cache/simulation.o | flags/argon_built
