@@ -63,5 +63,6 @@ rule link_server
 
 build cache/011.o : ccpp_server main.cpp | flags/http_lib_built flags/argon_cloned
 build cache/simulation.o : ccpp_server simulation.cpp | data_ids.hpp data.hpp
+build cache/routing.o : ccpp_server routing.cpp | data_ids.hpp data.hpp
 
-build 011 : link_server cache/011.o cache/dcon_common.o cache/simulation.o | flags/argon_built
+build 011 : link_server cache/011.o cache/routing.o cache/dcon_common.o cache/simulation.o | flags/argon_built

@@ -1,5 +1,7 @@
 #include <cstddef>
+#include <cstdint>
 #include <microhttpd.h>
+#include <ratio>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -7,6 +9,7 @@
 #include <string>
 #include <chrono>
 #include <fstream>
+#include <thread>
 
 #include "argon2.h"
 
@@ -15,6 +18,8 @@
 
 #include "constants.hpp"
 #include "unordered_dense.h"
+#include "routing.hpp"
+
 
 static const std::string errorpage =  "<html><body>Error page.</body></html>";
 
@@ -33,7 +38,7 @@ std::string make_report(dcon::user_id user) {
 	std::string result = "<html><head><title>Control panel</title></head><body>";
 	result +=  "<h1>Welcome, " + retrieve_user_name(user) + "</h1>";
 	result += retrieve_user_report_body(user);
-	result += "<h2>Available buildings</h2>" + retrieve_building_type_list();
+	result += "<h2>Available building types</h2>" + retrieve_building_type_list();
 	return result + "<footer> Report generated at <time>" + time_string + "</time> </footer></body></html>";
 }
 
@@ -66,27 +71,34 @@ MHD_Result parse_common_key_value_pairs (
 
 static char salt[SALTLEN];
 
-enum class connection_type {
-	post, get
-};
-
-struct connection_info_struct
-{
-	connection_type connectiontype;
-	std::string name;
-	uint8_t password_hash[HASHLEN];
-	std::string answerstring;
-	struct MHD_PostProcessor *postprocessor;
-
-	bool name_flag = false;
-	bool password_flag = false;
-	dcon::user_id user;
-};
-
 
 
 static enum MHD_Result
-iterate_post (
+iterate_post_action (
+	void *coninfo_cls,
+	enum MHD_ValueKind kind,
+	const char *key,
+	const char *filename,
+	const char *content_type,
+	const char *transfer_encoding, const char *data,
+	uint64_t off,
+	size_t size
+) {
+	connection_info_struct*con_info = (connection_info_struct*) coninfo_cls;
+
+	if (0 == strcmp (key, "id")) {
+		con_info->id = b10_to_int(data);
+	}
+
+	if (0 == strcmp(key, "id2")) {
+		con_info->id2 = b10_to_int(data);
+	}
+
+	return MHD_YES;
+}
+
+static enum MHD_Result
+iterate_post_new_user (
 	void *coninfo_cls,
 	enum MHD_ValueKind kind,
 	const char *key,
@@ -175,6 +187,7 @@ send_page_from_memory (
 
 static std::mutex session_mutex{};
 static ankerl::unordered_dense::map<std::string, dcon::user_id> session_to_user;
+static ankerl::unordered_dense::map<int32_t, std::string> user_to_session;
 
 std::string generate_session(dcon::user_id uid) {
 	std::random_device r;
@@ -190,7 +203,12 @@ std::string generate_session(dcon::user_id uid) {
 	}
 
 	session_mutex.lock();
+	auto it = user_to_session.find(uid.index());
+	if (it == user_to_session.end()) {
+		session_to_user.erase(it->second);
+	}
 	session_to_user[session_string] = uid;
+	user_to_session[uid.index()] = session_string;
 	session_mutex.unlock();
 
 	return session_string;
@@ -213,12 +231,21 @@ ahc_echo(
 		auto con_info = new connection_info_struct;
 
 		if (0 == strcmp (method, "POST")) {
-			con_info->postprocessor = MHD_create_post_processor (
-				connection,
-				POSTBUFFERSIZE,
-				iterate_post,
-				(void*) con_info
-			);
+			if (strcmp(url, "/new_user") == 0) {
+				con_info->postprocessor = MHD_create_post_processor (
+					connection,
+					POSTBUFFERSIZE,
+					iterate_post_new_user,
+					(void*) con_info
+				);
+			} else {
+				con_info->postprocessor = MHD_create_post_processor (
+					connection,
+					POSTBUFFERSIZE,
+					iterate_post_action,
+					(void*) con_info
+				);
+			}
 			if (NULL == con_info->postprocessor) {
 				delete con_info;
 				return MHD_NO;
@@ -288,23 +315,10 @@ ahc_echo(
 		// auto page = make_main_page();
 		if (con_info->user) {
 			if (0 == strcmp(url, "/building_type")) {
-				auto page = make_building_type_report(
-					dcon::building_type_id{
-						(dcon::building_type_id::value_base_t)common_keys.id
-					}
-				);
-				response = MHD_create_response_from_buffer (
-					strlen(page.c_str()),
-					(void*) page.c_str(),
-					MHD_RESPMEM_MUST_COPY
-				);
-				ret = MHD_queue_response(
-					connection,
-					MHD_HTTP_OK,
-					response
-				);
-				MHD_destroy_response(response);
-				return ret;
+				return respond_building_type(connection, common_keys.id);
+			}
+			if (0 == strcmp(url, "/building")) {
+				return respond_building(connection, common_keys.id);
 			}
 			auto page = make_report(con_info->user);
 			response = MHD_create_response_from_buffer (
@@ -334,6 +348,65 @@ ahc_echo(
 			return ret;
 		}
 	} else if (is_post) {
+		if (strcmp(url, "/build") == 0) {
+			if(!con_info->user) {
+				return send_page_from_memory(
+					connection,
+					errorpage.c_str(),
+					MHD_HTTP_UNAUTHORIZED
+				);
+			}
+		} if (strcmp(url, "/build") == 0) {
+			if(!con_info->user) {
+				return send_page_from_memory(
+					connection,
+					errorpage.c_str(),
+					MHD_HTTP_UNAUTHORIZED
+				);
+			}
+			if (*upload_data_size != 0) {
+				MHD_post_process (
+					con_info->postprocessor,
+					upload_data,
+					*upload_data_size
+				);
+				*upload_data_size = 0;
+				return MHD_YES;
+			}
+
+			auto result = request_new_building(
+				con_info->user,
+				dcon::building_type_id{
+					(dcon::building_type_id::value_base_t)common_keys.id
+				}
+			);
+
+			if (!result) {
+				return send_page_from_memory(
+					connection,
+					errorpage.c_str(),
+					MHD_HTTP_INSUFFICIENT_STORAGE
+				);
+			}
+
+			auto page = make_building_type_report(
+			dcon::building_type_id{
+					(dcon::building_type_id::value_base_t)common_keys.id
+				}
+			);
+			response = MHD_create_response_from_buffer (
+				strlen(page.c_str()),
+				(void*) page.c_str(),
+				MHD_RESPMEM_MUST_COPY
+			);
+			ret = MHD_queue_response(
+				connection,
+				MHD_HTTP_OK,
+				response
+			);
+			MHD_destroy_response(response);
+			return ret;
+		}
 		if (strcmp(url, "/new_user") == 0) {
 			if (*upload_data_size != 0) {
 				MHD_post_process (
@@ -410,6 +483,26 @@ main(
 	char ** argv
 ) {
 	init_simulation();
+	float timer;
+	auto now = std::chrono::system_clock::now();
+	auto then = std::chrono::system_clock::now();
+
+	std::thread game_loop ([&]() {
+		while (true) {
+			then = std::chrono::system_clock::now();
+			auto duration = then - now;
+			auto milliseconds =
+				std::chrono::duration_cast<std::chrono::milliseconds>(duration);
+			if (milliseconds.count() > 500) {
+				simulation_update();
+				now = then;
+			} else {
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			}
+		}
+	});
+
+	game_loop.detach();
 
 	FILE * salt_container = fopen(".salt", "r");
 	if( salt_container ) {

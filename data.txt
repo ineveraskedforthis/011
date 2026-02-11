@@ -127,6 +127,10 @@ object{
 		name{activity}
 		type{activity_id}
 	}
+	property{
+		name{constructed}
+		type{bitfield}
+	}
 }
 
 relationship{
