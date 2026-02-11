@@ -116,12 +116,16 @@ object{
 		type{float}
 	}
 	property{
-		name{construction_progress}
-		type{array{uint8_t}{float}}
+		name{stockpile}
+		type{array{commodity_id}{int32_t}}
 	}
 	property{
 		name{operation_tick}
 		type{int32_t}
+	}
+	property{
+		name{activity}
+		type{activity_id}
 	}
 }
 

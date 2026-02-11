@@ -14,6 +14,7 @@
 #include "simulation.hpp"
 
 #include "constants.hpp"
+#include "unordered_dense.h"
 
 static const std::string errorpage =  "<html><body>Error page.</body></html>";
 
@@ -29,15 +30,35 @@ std::string make_report(dcon::user_id user) {
 	const auto now = std::chrono::system_clock::now();
 	auto time_string = std::format("{:%Y-%m-%d %H:%M}", now);
 
-	return "<html><head><title>Control panel</title></head><body><h1>Welcome, " + retrieve_user_name(user) + "</h1>" + retrieve_user_report_body(user) + "<footer> Report generated at " + time_string + "</footer></body></html>";
+	std::string result = "<html><head><title>Control panel</title></head><body>";
+	result +=  "<h1>Welcome, " + retrieve_user_name(user) + "</h1>";
+	result += retrieve_user_report_body(user);
+	result += "<h2>Available buildings</h2>" + retrieve_building_type_list();
+	return result + "<footer> Report generated at <time>" + time_string + "</time> </footer></body></html>";
 }
 
-MHD_Result print_out_key (
+int b10_to_int(std::string in_value) {
+	auto result = 0;
+	for (int i = 0; i < in_value.size(); i++) {
+		result = result * 10 + in_value[i];
+	}
+	return result;
+}
+
+struct common_params {
+	int32_t id;
+};
+
+MHD_Result parse_common_key_value_pairs (
 	void *cls,
 	enum MHD_ValueKind kind,
 	const char *key,
 	const char *value
 ) {
+	common_params * data = (common_params *) cls;
+	if (0 == strcmp(key, "id")) {
+		data->id = b10_to_int(value);
+	}
 	printf ("%s: %s\n", key, value);
 	return MHD_YES;
 }
@@ -150,6 +171,31 @@ send_page_from_memory (
 	return ret;
 }
 
+#define SESSIONSIZE 64
+
+static std::mutex session_mutex{};
+static ankerl::unordered_dense::map<std::string, dcon::user_id> session_to_user;
+
+std::string generate_session(dcon::user_id uid) {
+	std::random_device r;
+	std::seed_seq seed2{r(), r(), r(), r(), r(), r(), r(), r()};
+	std::mt19937 engine(seed2);
+	std::uniform_int_distribution<> dist(
+		0, 25
+	);
+
+	std::string session_string {};
+	for(int i = 0; i < SESSIONSIZE; i++) {
+		session_string += ('A' + dist(engine));
+	}
+
+	session_mutex.lock();
+	session_to_user[session_string] = uid;
+	session_mutex.unlock();
+
+	return session_string;
+}
+
 static enum MHD_Result
 ahc_echo(
 	void * cls,
@@ -186,6 +232,26 @@ ahc_echo(
 		return MHD_YES;
 	}
 
+
+	connection_info_struct *con_info = (connection_info_struct*) *req_cls;
+
+	const char * session = MHD_lookup_connection_value(
+		connection,
+		MHD_COOKIE_KIND,
+		"SESSION"
+	);
+
+	printf("session detected\n");
+	printf("%s", session);
+
+	if (session) {
+		std::string session_string = session;
+		auto iterator = session_to_user.find(session_string);
+		if (iterator != session_to_user.end()){
+			con_info->user = iterator->second;
+		}
+	}
+
 	struct MHD_Response *response;
 	enum MHD_Result ret;
 
@@ -193,21 +259,53 @@ ahc_echo(
 	bool is_post = 0 == strcmp(method, "POST");
 	bool is_get = 0 == strcmp(method, "GET");
 
-	MHD_get_connection_values (
+	common_params common_keys{};
+
+	const char * user_index = MHD_lookup_connection_value(
 		connection,
-		MHD_HEADER_KIND,
-		&print_out_key,
-		NULL
+		MHD_COOKIE_KIND,
+		"id"
 	);
+
+	if (user_index) {
+		common_keys.id = b10_to_int(user_index);
+	} else {
+		common_keys.id = 0;
+	}
+
+	// MHD_get_connection_values (
+	// 	connection,
+	// 	MHD_HEADER_KIND,
+	// 	&parse_common_key_value_pairs,
+	// 	&common_keys
+	// );
 
 	if (is_get) {
 		if (0 != *upload_data_size)
 			return MHD_NO; /* upload data in a GET!? */
 
-		connection_info_struct *con_info = (connection_info_struct*) *req_cls;
 
 		// auto page = make_main_page();
 		if (con_info->user) {
+			if (0 == strcmp(url, "/building_type")) {
+				auto page = make_building_type_report(
+					dcon::building_type_id{
+						(dcon::building_type_id::value_base_t)common_keys.id
+					}
+				);
+				response = MHD_create_response_from_buffer (
+					strlen(page.c_str()),
+					(void*) page.c_str(),
+					MHD_RESPMEM_MUST_COPY
+				);
+				ret = MHD_queue_response(
+					connection,
+					MHD_HTTP_OK,
+					response
+				);
+				MHD_destroy_response(response);
+				return ret;
+			}
 			auto page = make_report(con_info->user);
 			response = MHD_create_response_from_buffer (
 				strlen(page.c_str()),
@@ -237,7 +335,6 @@ ahc_echo(
 		}
 	} else if (is_post) {
 		if (strcmp(url, "/new_user") == 0) {
-			connection_info_struct *con_info = (connection_info_struct*) *req_cls;
 			if (*upload_data_size != 0) {
 				MHD_post_process (
 					con_info->postprocessor,
@@ -248,11 +345,32 @@ ahc_echo(
 				return MHD_YES;
 			}
 			if (con_info->user) {
+				auto session = generate_session(con_info->user);
+				char key_value[SESSIONSIZE+16];
+				snprintf(
+					key_value, sizeof(key_value),
+					"%s=%s",
+					"SESSION",
+					session.c_str()
+				);
+				// printf("new session %s\n", key_value);
+
 				response = MHD_create_response_from_buffer (
 					strlen(con_info->answerstring.c_str()),
 					(void*) con_info->answerstring.c_str(),
 					MHD_RESPMEM_PERSISTENT
 				);
+
+				if (!response) {
+					return MHD_NO;
+				}
+
+				MHD_add_response_header(
+					response,
+					MHD_HTTP_HEADER_SET_COOKIE,
+					key_value
+				);
+
 				ret = MHD_queue_response(
 					connection,
 					MHD_HTTP_OK,

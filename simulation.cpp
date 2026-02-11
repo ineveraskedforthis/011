@@ -4,11 +4,19 @@
 #include "unordered_dense.h"
 #include <cmath>
 #include <cstdint>
+#include <fcntl.h>
+#include <mutex>
 #include <string>
 #include <vector>
 #include "simulation.hpp"
 
 static dcon::data_container state {};
+
+std::mutex savings_mutex;
+
+static constexpr uint8_t max_inputs = 8;
+static constexpr uint8_t max_outputs = 8;
+static constexpr uint8_t max_activities = 8;
 
 
 struct text_collection {
@@ -64,7 +72,7 @@ void init_simulation() {
 		state.activity_resize_output_amount(state.commodity_size());
 		state.building_type_resize_construction_amount(state.commodity_size());
 		state.building_type_resize_construction(state.commodity_size());
-		state.building_resize_construction_progress(state.commodity_size());
+		state.building_resize_stockpile(state.commodity_size());
 
 		// buildings and activities
 
@@ -75,7 +83,7 @@ void init_simulation() {
 		state.activity_set_output(refine_basic, 0, material_basic);
 		state.activity_set_output_amount(refine_basic, 0, 1);
 
-		state.building_type_resize_activities(state.activity_size());
+		state.building_type_resize_activities(16);
 
 		auto refinery = state.create_building_type();
 		state.building_type_set_name(refinery, new_text(all_text, "Refinery"));
@@ -162,7 +170,118 @@ std::string retrieve_building_report_body(dcon::building_id building) {
 std::string retrieve_activity_report_body(dcon::activity_id activity) {
 
 }
+std::string retrieve_building_type_list() {
+	std::string result;
+	result += "<ul>";
+	state.for_each_building_type([&](auto btid){
+		result += "<li><a href=\"/building_type?id=" + std::to_string(btid.index())+ "\">" + get_text(all_text, state.building_type_get_name(btid)) + "</a></li>";
+	});
+	result += "</ul>";
+
+	return result;
+}
+
+std::string make_building_type_report(dcon::building_type_id btid) {
+	if(!state.building_type_is_valid(btid)) {
+		return "<html><head><title>Error</title></head><body>Invalid id</body></html>";
+	}
+	std::string result =
+		"<html><head><title>"
+		+ get_text(all_text, state.building_type_get_name(btid))
+		+ "</title></head>";
+
+	result += "<body>";
+
+	result += "<header><h1>" + get_text(all_text, state.building_type_get_name(btid)) + "</h1></header>";
+
+	result += "<h2>Activities</h2>";
+	result += "<ul>";
+	for (int i = 0; i < max_activities; i++) {
+		auto activity = state.building_type_get_activities(btid, i);
+		if (!activity) break;
+		result += "<li><a href=\"/activity?id=" + std::to_string(activity.id.index())+ "\">"
+		+ get_text(all_text, state.activity_get_name(activity))
+		+ "</a></li>";
+	}
+	result += "</ul>";
+
+	result += "</body></html>";
+
+	return result;
+}
+
+template<typename T>
+struct safe_ring_queue {
+	std::mutex mtx;
+	std::array<T, 256> items;
+	uint8_t left;
+	uint8_t right;
+
+	bool push(T item) {
+		mtx.lock();
+		if (right + 1 == left) {
+			return false;
+		}
+		items[right] = item;
+		right++;
+		mtx.unlock();
+		return true;
+	}
+};
+
+struct construction_request {
+	dcon::user_id user;
+	dcon::building_type_id building_type;
+};
+
+safe_ring_queue<construction_request> construction_requests_queue {};
+
+bool request_new_building(dcon::user_id user, dcon::building_type_id building_type) {
+	return construction_requests_queue.push({user, building_type});
+}
 
 void simulation_update() {
+	construction_requests_queue.mtx.lock();
+	for (uint8_t i = construction_requests_queue.left; i < construction_requests_queue.right; i++) {
+		auto& item = construction_requests_queue.items[i];
+		auto bid = state.create_building();
+		state.building_set_building_type(bid, item.building_type);
+		state.force_create_ownership(bid, item.user);
+	}
+	construction_requests_queue.mtx.unlock();
 
+	state.for_each_building([&](dcon::building_id building){
+		auto user = state.building_get_owner_from_ownership(building);
+		auto activity = state.building_get_activity(building);
+		bool inputs_ready = true;
+		for (int i = 0; i < 8; i++) {
+			auto input = state.activity_get_input(activity, i);
+			if(!input) break;
+			auto input_amount = state.activity_get_input_amount(activity, i);
+			auto stockpile = state.building_get_stockpile(building, input);
+			if (stockpile < input_amount) {
+				inputs_ready = false;
+				break;
+			}
+		}
+
+		if (inputs_ready) {
+			for (int i = 0; i < 8; i++) {
+				auto input = state.activity_get_input(activity, i);
+				if(!input) break;
+
+				auto input_amount = state.activity_get_input_amount(activity, i);
+				auto stockpile = state.building_get_stockpile(building, input);
+				state.building_set_stockpile(building, input, stockpile - input_amount);
+			}
+
+			for (int i = 0; i < 8; i++) {
+				auto output = state.activity_get_output(activity, i);
+				if(!output) break;
+				auto output_amount = state.activity_get_output_amount(activity, i);
+				auto stockpile = state.building_get_stockpile(building, output);
+				state.building_set_stockpile(building, output, stockpile + output_amount);
+			}
+		}
+	});
 }
