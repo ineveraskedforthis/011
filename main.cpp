@@ -40,11 +40,12 @@ std::string make_report(dcon::user_id user) {
 	result +=  "<h1>Welcome, " + retrieve_user_name(user) + "</h1>";
 	result += retrieve_user_report_body(user);
 	result += "<h2>Available building types</h2>" + retrieve_building_type_list();
+	result += trade_section(user);
 	return result + "<footer> Report generated at <time>" + time_string + "</time> </footer></body></html>";
 }
 
-int b10_to_int(std::string in_value) {
-	auto result = 0;
+int64_t b10_to_int(std::string in_value) {
+	int64_t result = 0;
 	for (int i = 0; i < in_value.size(); i++) {
 		result = result * 10 + in_value[i] - '0';
 	}
@@ -97,6 +98,14 @@ iterate_post_action (
 
 	if (0 == strcmp(key, "volume")) {
 		con_info->volume = b10_to_int(data);
+	}
+
+	if (0 == strcmp(key, "price")) {
+		con_info->price = b10_to_int(data);
+	}
+
+	if (0 == strcmp(key, "balance")) {
+		con_info->balance = b10_to_int(data);
 	}
 
 	return MHD_YES;
@@ -169,24 +178,7 @@ request_completed (
 
 #define POSTBUFFERSIZE  512
 
-static enum MHD_Result
-send_page_from_memory (
-	struct MHD_Connection *connection,
-	const char* page,
-	int status_code
-) {
-	enum MHD_Result ret;
-	struct MHD_Response *response;
-	response = MHD_create_response_from_buffer (
-		strlen (page),
-		(void*) page,
-		MHD_RESPMEM_PERSISTENT
-	);
-	if (!response) return MHD_NO;
-	ret = MHD_queue_response (connection, status_code, response);
-	MHD_destroy_response (response);
-	return ret;
-}
+
 
 #define SESSIONSIZE 64
 
@@ -352,59 +344,19 @@ ahc_echo(
 			return ret;
 		}
 	} else if (is_post) {
+		if (*upload_data_size != 0) {
+			MHD_post_process (
+				con_info->postprocessor,
+				upload_data,
+				*upload_data_size
+			);
+			*upload_data_size = 0;
+			return MHD_YES;
+		}
 		if (strcmp(url, "/set_transfer") == 0) {
-			if(!con_info->user) {
-				return send_page_from_memory(
-					connection,
-					errorpage.c_str(),
-					MHD_HTTP_UNAUTHORIZED
-				);
-			}
-			if (*upload_data_size != 0) {
-				MHD_post_process (
-					con_info->postprocessor,
-					upload_data,
-					*upload_data_size
-				);
-				*upload_data_size = 0;
-				return MHD_YES;
-			}
-
-			auto result = request_transfer(
-				con_info->user,
-				dcon::storage_id {dcon::storage_id::value_base_t(con_info->id)},
-				dcon::storage_id {dcon::storage_id::value_base_t(con_info->id2)},
-				dcon::commodity_id {dcon::commodity_id::value_base_t (con_info->id3)},
-				con_info->volume
-			);
-			if (!result) {
-				return send_page_from_memory(
-					connection,
-					errorpage.c_str(),
-					MHD_HTTP_INSUFFICIENT_STORAGE
-				);
-			}
-
-			if (!result) {
-				return send_page_from_memory(
-					connection,
-					errorpage.c_str(),
-					MHD_HTTP_INSUFFICIENT_STORAGE
-				);
-			}
-
-			response = MHD_create_response_from_buffer (
-				strlen(successpage.c_str()),
-				(void*) successpage.c_str(),
-				MHD_RESPMEM_MUST_COPY
-			);
-			ret = MHD_queue_response(
-				connection,
-				MHD_HTTP_OK,
-				response
-			);
-			MHD_destroy_response(response);
-			return ret;
+			return POST_request_transfer(connection, con_info);
+		} else if (strcmp(url, "/demand/create") == 0) {
+			return POST_request_demand(connection, con_info);
 		} else if (strcmp(url, "/build") == 0) {
 			if(!con_info->user) {
 				return send_page_from_memory(
@@ -413,16 +365,6 @@ ahc_echo(
 					MHD_HTTP_UNAUTHORIZED
 				);
 			}
-			if (*upload_data_size != 0) {
-				MHD_post_process (
-					con_info->postprocessor,
-					upload_data,
-					*upload_data_size
-				);
-				*upload_data_size = 0;
-				return MHD_YES;
-			}
-
 			auto result = request_new_building(
 				con_info->user,
 				dcon::building_type_id{
@@ -457,15 +399,6 @@ ahc_echo(
 			return ret;
 		}
 		if (strcmp(url, "/new_user") == 0) {
-			if (*upload_data_size != 0) {
-				MHD_post_process (
-					con_info->postprocessor,
-					upload_data,
-					*upload_data_size
-				);
-				*upload_data_size = 0;
-				return MHD_YES;
-			}
 			if (con_info->user) {
 				auto session = generate_session(con_info->user);
 				char key_value[SESSIONSIZE+16];

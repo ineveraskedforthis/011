@@ -20,6 +20,8 @@ std::mutex buildings_mutex;
 std::mutex savings_mutex;
 std::mutex storage_mutex;
 std::mutex user_mutex;
+std::mutex demand_mutex;
+std::mutex supply_mutex;
 std::mutex storage_values_mutex;
 std::mutex transfer_mutex;
 
@@ -105,36 +107,40 @@ void init_simulation() {
 		state.building_type_set_name(extractor, new_text(all_text, "Extractor"));
 		state.building_type_set_activities(extractor, 0, extract_basic);
 		state.building_type_set_construction(extractor, 0, ore_basic);
-		state.building_type_set_construction_amount(extractor, 0, 50);
+		state.building_type_set_construction_amount(extractor, 0, 10);
 
 		auto refinery = state.create_building_type();
 		state.building_type_set_name(refinery, new_text(all_text, "Refinery"));
 		state.building_type_set_activities(refinery, 0, refine_basic);
 		state.building_type_set_construction(refinery, 0, ore_basic);
 		state.building_type_set_construction_amount(refinery, 0, 50);
+
+
+		auto fake_supply = state.create_supply();
+		state.supply_set_cid(fake_supply, ore_basic);
+		state.supply_set_storage(fake_supply, 1000);
+		state.supply_set_price(fake_supply, 50);
 	}
 }
 
+std::string to_string(__uint128_t value) {
+	std::string representation {};
+	for (int i = 0; i < 129 * std::log10(2); i++) {
+		auto digit =  (uint8_t) (value % 10);
+		value = value / 10;
+		representation = std::to_string(digit) + representation;
+		if (value == 0) {
+			break;
+		}
+	}
+	return  representation;
+}
 
 std::string retrieve_balance(dcon::user_id user) {
 	savings_mutex.lock();
 	auto savings = state.user_get_wealth(user);
 	savings_mutex.unlock();
-
-	std::string representation {};
-	for (int i = 0; i < 129 * std::log10(2); i++) {
-		auto digit =  (uint8_t) (savings % 10);
-		savings = savings / 10;
-		if (i == 10) {
-			representation = "." + representation;
-		}
-		representation = std::to_string(digit) + representation;
-		if (savings == 0 && i >= 10) {
-			break;
-		}
-	}
-
-	return representation;
+	return to_string(savings);
 }
 
 
@@ -260,7 +266,71 @@ std::string footer() {
 	return  "<footer> Report generated at <time>" + time_string + "</time> </footer>";
 }
 
+std::string trade_section(dcon::user_id user) {
+	std::string result = "";
+	result += "<h2>Your trade</h2>";
 
+	result += "<h3>Your orders</h3>";
+	result += "<table><caption>Demand</caption><thead><tr><th scope=\"col\">Commodity</th><th scope=\"col\">Price</th><th scope=\"col\">Details</th></tr></thead>";
+	state.user_for_each_demand_ownership_as_owner(user, [&](auto o){
+		dcon::demand_id demand = state.demand_ownership_get_demand(o);
+
+		auto cid = state.demand_get_cid(demand);
+		auto price = state.demand_get_price(demand);
+		result +="<tr><td>";
+		result += get_text(all_text, state.commodity_get_name(cid));
+		result += "</td><td>";
+		result += to_string(price);
+		result += "</td><td>";
+		result += "<a href=\"/demand/details?id=" + std::to_string(demand.index()) + "\">Details</a>";
+		result += "</td></tr>";
+	});
+	result += "</table>";
+
+	result += "<form action=\"/demand/create\" method=\"post\">";
+	result += "<p><input type=\"number\" min=\"1\" name=\"volume\" id=\"volume_demand\">";
+	result += "<label for=\"volume_demand\">Demanded volume</label></p>";
+	result += "<p><input type=\"number\" min=\"1\" name=\"price\" id=\"price_demand\">";
+	result += "<label for=\"price_demand\">Price per unit</label></p>";
+	result += "<select name=\"cid\" id=\"commodity_select\">";
+	state.for_each_commodity([&](auto cid) {
+		result += "<option value=\"" + std::to_string(cid.index()) +  "\">" + get_text(all_text, state.commodity_get_name(cid)) + "</option>";
+	});
+	result += "</select></p>";
+	result += "<p><button type=\"submit\">Submit</button></p>";
+	result += "</form>";
+
+	result += "<table><caption>Supply</caption><thead><tr><th scope=\"col\">Commodity</th><th scope=\"col\">Price</th><th scope=\"col\">Details</th></tr></thead>";
+	state.user_for_each_supply_ownership_as_owner(user, [&](auto o){
+		dcon::supply_id demand = state.supply_ownership_get_supply(o);
+
+		auto cid = state.supply_get_cid(demand);
+		auto price = state.supply_get_price(demand);
+		result +="<tr><td>";
+		result += get_text(all_text, state.commodity_get_name(cid));
+		result += "</td><td>";
+		result += to_string(price);
+		result += "</td><td>";
+		result += "<a href=\"/supply/details?id=" + std::to_string(demand.index()) + "\">Details</a>";
+		result += "</td></tr>";
+	});
+	result += "</table>";
+
+	result += "<form action=\"/supply/create\" method=\"post\">";
+	result += "<p><input type=\"number\" min=\"1\" name=\"volume\" id=\"volume_supply\">";
+	result += "<label for=\"volume_supply\">Supplied volume</label></p>";
+	result += "<p><input type=\"number\" min=\"1\" name=\"price\" id=\"price_supply\">";
+	result += "<label for=\"price_supply\">Price per unit</label></p>";
+	result += "<select name=\"cid\" id=\"commodity_select\">";
+	state.for_each_commodity([&](auto cid) {
+		result += "<option value=\"" + std::to_string(cid.index()) +  "\">" + get_text(all_text, state.commodity_get_name(cid)) + "</option>";
+	});
+	result += "</select></p>";
+	result += "<p><button type=\"submit\">Submit</button></p>";
+	result += "</form>";
+
+	return result;
+}
 
 std::string make_building_report(dcon::building_id bid) {
 	if(!state.building_is_valid(bid)) {
@@ -350,7 +420,7 @@ std::string make_building_report(dcon::building_id bid) {
 			result += get_text(all_text, state.commodity_get_name(cid));
 			auto target = state.transfer_get_target(t);
 			auto attached_to = state.storage_get_attached_to(target);
-			result += " from ";
+			result += " to ";
 			if (attached_to) {
 				result += building_link(attached_to);
 			} else {
@@ -547,6 +617,53 @@ bool request_transfer(dcon::user_id user, dcon::storage_id s,  dcon::storage_id 
 	return transfer_requests_queue.push({user, s, t, cid, volume});
 }
 
+
+struct demand_request {
+	dcon::user_id user;
+	dcon::commodity_id cid;
+	__uint128_t price;
+	__uint128_t volume;
+};
+safe_ring_queue<demand_request> demand_requests_queue {};
+bool request_demand(dcon::user_id user, dcon::commodity_id cid, __uint128_t price, __uint128_t volume) {
+	std::lock_guard<std::mutex> lock {user_mutex};
+	std::lock_guard<std::mutex> lock2 {demand_mutex};
+
+	if (!state.user_is_valid(user)) return false;
+	if (!state.commodity_is_valid(cid)) return false;
+	if (price == 0) return false;
+	if (volume == 0) return false;
+	auto required_wealth = price * volume;
+	if (required_wealth / price != volume) return false;
+	auto savings = state.user_get_wealth(user);
+	if (savings < required_wealth) return false;
+
+	return demand_requests_queue.push({user, cid, price, volume});
+}
+
+
+struct supply_request {
+	dcon::user_id user;
+	dcon::commodity_id cid;
+	__uint128_t price;
+	__uint128_t volume;
+};
+safe_ring_queue<demand_request> supply_requests_queue {};
+bool request_supply(dcon::user_id user, dcon::commodity_id cid, __uint128_t price, __uint128_t volume) {
+	std::lock_guard<std::mutex> lock {user_mutex};
+	std::lock_guard<std::mutex> lock2 {supply_mutex};
+
+	if (!state.user_is_valid(user)) return false;
+	if (!state.commodity_is_valid(cid)) return false;
+	if (price == 0) return false;
+	if (volume == 0) return false;
+	auto storage = state.user_get_storage(user);
+	auto current = state.storage_get_current(storage, cid);
+	if (current < volume) return false;
+
+	return supply_requests_queue.push({user, cid, price, volume});
+}
+
 struct building_settings_request {
 	dcon::user_id user;
 	dcon::building_id bid;
@@ -616,6 +733,43 @@ void simulation_update() {
 	}
 	transfer_requests_queue.left = transfer_requests_queue.right;
 	transfer_requests_queue.mtx.unlock();
+
+	demand_requests_queue.mtx.lock();
+	for (uint8_t i = demand_requests_queue.left; i != demand_requests_queue.right; i++) {
+		std::lock_guard<std::mutex> lock {demand_mutex};
+		std::lock_guard<std::mutex> lock2 {user_mutex};
+		auto& item = demand_requests_queue.items[i];
+		auto wealth = state.user_get_wealth(item.user);
+		auto required = item.volume * item.price;
+		if (required > wealth) continue;
+		state.user_set_wealth(item.user, wealth - required);
+		auto demand = state.create_demand();
+		state.demand_set_volume(demand, item.volume);
+		state.demand_set_price(demand, item.price);
+		state.demand_set_cid(demand, item.cid);
+		state.force_create_demand_ownership(demand, item.user);
+	}
+	demand_requests_queue.left = demand_requests_queue.right;
+	demand_requests_queue.mtx.unlock();
+
+	supply_requests_queue.mtx.lock();
+	for (uint8_t i = supply_requests_queue.left; i != supply_requests_queue.right; i++) {
+		std::lock_guard<std::mutex> lock {supply_mutex};
+		std::lock_guard<std::mutex> lock2 {user_mutex};
+		std::lock_guard<std::mutex> lock3 {storage_mutex};
+		auto& item = supply_requests_queue.items[i];
+		auto storage = state.user_get_storage(item.user);
+		auto current = state.storage_get_current(storage, item.cid);
+		if (current < item.volume) continue;
+		state.storage_set_current(storage, item.cid, current - item.volume);
+		auto supply = state.create_supply();
+		state.supply_set_storage(supply, item.volume);
+		state.supply_set_price(supply, item.price);
+		state.supply_set_cid(supply, item.cid);
+		state.force_create_supply_ownership(supply, item.user);
+	}
+	supply_requests_queue.left = supply_requests_queue.right;
+	supply_requests_queue.mtx.unlock();
 
 	// production
 	state.for_each_building([&](dcon::building_id building){

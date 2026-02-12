@@ -5,10 +5,12 @@
 void init_simulation();
 void simulation_update();
 dcon::user_id create_or_get_user(std::string name, uint8_t password_hash[HASHLEN]);
+std::string trade_section(dcon::user_id user);
 
 bool request_new_building(dcon::user_id user, dcon::building_type_id building_type);
 bool request_settings_change(dcon::user_id user, dcon::building_id building, int i);
 bool request_transfer(dcon::user_id user, dcon::storage_id s,  dcon::storage_id t, dcon::commodity_id cid, int volume);
+bool request_demand(dcon::user_id user, dcon::commodity_id cid, __uint128_t price, __uint128_t volume);
 
 std::string retrieve_user_name(dcon::user_id user);
 std::string retrieve_user_report_body(dcon::user_id user);

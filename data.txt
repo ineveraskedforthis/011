@@ -208,43 +208,86 @@ relationship{
 }
 
 object{
-	name{contract}
+	name{supply}
 	size{300000}
 	storage_type{erasable}
 	property{
-		name{desired_transfer}
-		type{array{commodity_id}{int32_t}}
+		name{cid}
+		type{commodity_id}
+	}
+	property{
+		name{price}
+		type{__uint128_t}
+	}
+	property{
+		name{storage}
+		type{__uint128_t}
+	}
+	property{
+		name{target_storage}
+		type{int32_t}
+	}
+	property{
+		name{last_tick_volume}
+		type{int32_t}
+	}
+}
+
+object{
+	name{demand}
+	size{300000}
+	storage_type{erasable}
+	property{
+		name{cid}
+		type{commodity_id}
+	}
+	property{
+		name{price}
+		type{__uint128_t}
+	}
+	property{
+		name{volume}
+		type{__uint128_t}
+	}
+	property{
+		name{target_volume}
+		type{__uint128_t}
+	}
+	property{
+		name{auto_refresh}
+		type{bitfield}
 	}
 }
 
 relationship{
-	name{contract_initiator}
+	name{supply_ownership}
 	size{30000}
 	storage_type{erasable}
 	link{
-		object{contract}
-		name{contract}
+		object{supply}
+		name{supply}
 		type{unique}
 	}
 	link{
 		object{user}
-		name{initiator}
+		name{owner}
 		type{many}
 	}
 }
 
+
 relationship{
-	name{contract_partner}
+	name{demand_ownership}
 	size{30000}
 	storage_type{erasable}
 	link{
-		object{contract}
-		name{contract}
+		object{demand}
+		name{demand}
 		type{unique}
 	}
 	link{
 		object{user}
-		name{partner}
+		name{owner}
 		type{many}
 	}
 }
