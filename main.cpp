@@ -22,6 +22,7 @@
 
 
 static const std::string errorpage =  "<html><body>Error page.</body></html>";
+static const std::string successpage =  "<html><body>Success.</body></html>";
 
 static const std::string MAIN_STATIC_PAGE = "<html><head><title>Consent required.</title></head><body>We have to store your data to link your session cookie with in-game entity. We use data only for the in-game purposes. If you agree, pressing the  login button will generate a cookie and will allow you to interact with the game.<form action=\"/new_user\" method=\"post\"><label for=\"name\">Username:</label><input type=\"text\" name=\"name\" required /><label for=\"password\">Password</label><input type=\"password\" name=\"password\" required /><input type=\"submit\" value=\"Sign in\"/></form> </body></html>";
 
@@ -45,7 +46,7 @@ std::string make_report(dcon::user_id user) {
 int b10_to_int(std::string in_value) {
 	auto result = 0;
 	for (int i = 0; i < in_value.size(); i++) {
-		result = result * 10 + in_value[i];
+		result = result * 10 + in_value[i] - '0';
 	}
 	return result;
 }
@@ -92,6 +93,10 @@ iterate_post_action (
 
 	if (0 == strcmp(key, "id2")) {
 		con_info->id2 = b10_to_int(data);
+	}
+
+	if (0 == strcmp(key, "volume")) {
+		con_info->volume = b10_to_int(data);
 	}
 
 	return MHD_YES;
@@ -290,10 +295,9 @@ ahc_echo(
 
 	const char * user_index = MHD_lookup_connection_value(
 		connection,
-		MHD_COOKIE_KIND,
+		MHD_GET_ARGUMENT_KIND,
 		"id"
 	);
-
 	if (user_index) {
 		common_keys.id = b10_to_int(user_index);
 	} else {
@@ -348,7 +352,7 @@ ahc_echo(
 			return ret;
 		}
 	} else if (is_post) {
-		if (strcmp(url, "/build") == 0) {
+		if (strcmp(url, "/set_transfer") == 0) {
 			if(!con_info->user) {
 				return send_page_from_memory(
 					connection,
@@ -356,7 +360,52 @@ ahc_echo(
 					MHD_HTTP_UNAUTHORIZED
 				);
 			}
-		} if (strcmp(url, "/build") == 0) {
+			if (*upload_data_size != 0) {
+				MHD_post_process (
+					con_info->postprocessor,
+					upload_data,
+					*upload_data_size
+				);
+				*upload_data_size = 0;
+				return MHD_YES;
+			}
+
+			auto result = request_transfer(
+				con_info->user,
+				dcon::storage_id {dcon::storage_id::value_base_t(con_info->id)},
+				dcon::storage_id {dcon::storage_id::value_base_t(con_info->id2)},
+				dcon::commodity_id {dcon::commodity_id::value_base_t (con_info->id3)},
+				con_info->volume
+			);
+			if (!result) {
+				return send_page_from_memory(
+					connection,
+					errorpage.c_str(),
+					MHD_HTTP_INSUFFICIENT_STORAGE
+				);
+			}
+
+			if (!result) {
+				return send_page_from_memory(
+					connection,
+					errorpage.c_str(),
+					MHD_HTTP_INSUFFICIENT_STORAGE
+				);
+			}
+
+			response = MHD_create_response_from_buffer (
+				strlen(successpage.c_str()),
+				(void*) successpage.c_str(),
+				MHD_RESPMEM_MUST_COPY
+			);
+			ret = MHD_queue_response(
+				connection,
+				MHD_HTTP_OK,
+				response
+			);
+			MHD_destroy_response(response);
+			return ret;
+		} else if (strcmp(url, "/build") == 0) {
 			if(!con_info->user) {
 				return send_page_from_memory(
 					connection,
@@ -377,7 +426,7 @@ ahc_echo(
 			auto result = request_new_building(
 				con_info->user,
 				dcon::building_type_id{
-					(dcon::building_type_id::value_base_t)common_keys.id
+					(dcon::building_type_id::value_base_t)con_info->id
 				}
 			);
 
@@ -391,7 +440,7 @@ ahc_echo(
 
 			auto page = make_building_type_report(
 			dcon::building_type_id{
-					(dcon::building_type_id::value_base_t)common_keys.id
+					(dcon::building_type_id::value_base_t)con_info->id
 				}
 			);
 			response = MHD_create_response_from_buffer (

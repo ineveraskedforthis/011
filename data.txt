@@ -1,5 +1,59 @@
 global{no-conversions}
 
+
+object{
+	name{storage}
+	size{40000}
+	storage_type{erasable}
+
+	property{
+		name{current}
+		type{array{commodity_id}{int32_t}}
+	}
+	property{
+		name{limit}
+		type{array{commodity_id}{int32_t}}
+	}
+
+	property{
+		name{owner}
+		type{user_id}
+	}
+	property{
+		name{attached_to}
+		type{building_id}
+	}
+}
+
+relationship{
+	name{transfer}
+	size{30000}
+	storage_type{erasable}
+	link{
+		object{storage}
+		name{source}
+		type{many}
+	}
+	link{
+		object{storage}
+		name{target}
+		type{many}
+	}
+	property{
+		name{current}
+		type{array{commodity_id}{int32_t}}
+	}
+	property{
+		name{accumulated_power}
+		type{float}
+	}
+	composite_key{
+		name{transfer_pair}
+		index{source}
+		index{target}
+	}
+}
+
 object{
 	name{user}
 	size{10000}
@@ -21,13 +75,11 @@ object{
 
 	property{
 		name{storage}
-		type{array{commodity_id}{int32_t}}
-	}
-	property{
-		name{max_storage}
-		type{array{commodity_id}{int32_t}}
+		type{storage_id}
 	}
 }
+
+
 
 object{
 	name{commodity}
@@ -116,8 +168,8 @@ object{
 		type{float}
 	}
 	property{
-		name{stockpile}
-		type{array{commodity_id}{int32_t}}
+		name{storage}
+		type{storage_id}
 	}
 	property{
 		name{operation_tick}

@@ -19,8 +19,10 @@ struct connection_info_struct
 	bool name_flag = false;
 	bool password_flag = false;
 	dcon::user_id user;
-    int id;
-    int id2;
+	int id;
+	int id2;
+	int id3;
+	int volume;
 };
 
 MHD_Result respond_building_type(

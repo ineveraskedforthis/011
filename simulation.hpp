@@ -8,6 +8,7 @@ dcon::user_id create_or_get_user(std::string name, uint8_t password_hash[HASHLEN
 
 bool request_new_building(dcon::user_id user, dcon::building_type_id building_type);
 bool request_settings_change(dcon::user_id user, dcon::building_id building, int i);
+bool request_transfer(dcon::user_id user, dcon::storage_id s,  dcon::storage_id t, dcon::commodity_id cid, int volume);
 
 std::string retrieve_user_name(dcon::user_id user);
 std::string retrieve_user_report_body(dcon::user_id user);
