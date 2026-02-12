@@ -95,7 +95,7 @@ void init_simulation() {
 		state.activity_set_output_amount(refine_basic, 0, 1);
 
 		auto extract_basic = state.create_activity();
-		state.activity_set_name(extract_basic, new_text(all_text, "Refine basic ore"));
+		state.activity_set_name(extract_basic, new_text(all_text, "Extract basic ore"));
 		state.activity_set_output(extract_basic, 0, ore_basic);
 		state.activity_set_output_amount(extract_basic, 0, 1);
 
@@ -348,6 +348,14 @@ std::string make_building_report(dcon::building_id bid) {
 			result += std::to_string(state.transfer_get_current(t, cid));
 			result += " ";
 			result += get_text(all_text, state.commodity_get_name(cid));
+			auto target = state.transfer_get_target(t);
+			auto attached_to = state.storage_get_attached_to(target);
+			result += " from ";
+			if (attached_to) {
+				result += building_link(attached_to);
+			} else {
+				result += "Personal storage";
+			}
 			result += "</li>";
 		});
 	});
@@ -355,6 +363,31 @@ std::string make_building_report(dcon::building_id bid) {
 	if (!any_outgoing) {
 		result += "None";
 	}
+
+	result += "<h3>Set up outgoing transfer</h3>";
+	result += "<form action=\"/set_transfer\" method=\"post\">";
+	result += "<input name=\"id\" type=\"hidden\" value=\"" + std::to_string(storage.id.index()) + "\">";
+	result += "<p><label for=\"target_storage_select\">Select target storage</label><br>";
+	result += "<select name=\"id2\" id=\"target_storage_select\">";
+	result += "<option value=\"" + std::to_string(state.user_get_storage(owner).id.index()) +  "\">Personal storage</option>";
+	state.user_for_each_ownership(owner, [&](auto o) {
+		auto attached = state.ownership_get_owned(o);
+		auto source = state.building_get_storage(attached);
+		result += "<option value=\"" + std::to_string(source.id.index()) +  "\">" + building_name(attached) + "</option>";
+	});
+	result += "</select></p>";
+
+	result += "<select name=\"id3\" id=\"commodity_select\">";
+	state.for_each_commodity([&](auto cid) {
+		result += "<option value=\"" + std::to_string(cid.index()) +  "\">" + get_text(all_text, state.commodity_get_name(cid)) + "</option>";
+	});
+	result += "</select></p>";
+
+	result += "<p><label for=\"volume\">Volume</label><br>";
+	result += "<input type=\"number\" id=\"volume\" name=\"volume\" min=\"0\" max=\"3\" /></p>";
+
+	result += "<p><button type=\"submit\">Request transfer change</button></p>";
+	result += "</form>";
 
 	auto in_construction = !state.building_get_constructed(bid);
 	if (in_construction) {
@@ -677,7 +710,7 @@ void simulation_update() {
 			auto present = state.storage_get_current(target, cid);
 			auto actual_movement = ve::select(movement < available, movement, 0);
 			state.storage_set_current(target, cid, present + actual_movement);
-			state.storage_set_current(source, cid, available - actual_movement);
+			state.storage_set_current(source, cid, state.storage_get_current(source, cid) - actual_movement);
 		});
 	});
 }
