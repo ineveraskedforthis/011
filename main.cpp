@@ -1,7 +1,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <microhttpd.h>
-#include <ratio>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -19,30 +18,11 @@
 #include "constants.hpp"
 #include "unordered_dense.h"
 #include "routing.hpp"
+#include "html-gen.hpp"
+#include "url.hpp"
 
 
 static const std::string errorpage =  "<html><body>Error page.</body></html>";
-static const std::string successpage =  "<html><body>Success.</body></html>";
-
-static const std::string MAIN_STATIC_PAGE = "<html><head><title>Consent required.</title></head><body>We have to store your data to link your session cookie with in-game entity. We use data only for the in-game purposes. If you agree, pressing the  login button will generate a cookie and will allow you to interact with the game.<form action=\"/new_user\" method=\"post\"><label for=\"name\">Username:</label><input type=\"text\" name=\"name\" required /><label for=\"password\">Password</label><input type=\"password\" name=\"password\" required /><input type=\"submit\" value=\"Sign in\"/></form> </body></html>";
-
-static const std::string SUCCESS_NEW_USER_PAGE = "<html><head><title>Consent granted</title></head><body><br><form action=\"/report\" method=\"get\"><input type=\"submit\" value=\"Get back to report\"/></form> </body></html>";
-
-std::string make_report(dcon::user_id user) {
-	if(!user) {
-		return "<html><head><title>Error</title></head><body>Invalid credentials</body></html>";
-	}
-
-	const auto now = std::chrono::system_clock::now();
-	auto time_string = std::format("{:%Y-%m-%d %H:%M}", now);
-
-	std::string result = "<html><head><title>Control panel</title></head><body>";
-	result +=  "<h1>Welcome, " + retrieve_user_name(user) + "</h1>";
-	result += retrieve_user_report_body(user);
-	result += "<h2>Available building types</h2>" + retrieve_building_type_list();
-	result += trade_section(user);
-	return result + "<footer> Report generated at <time>" + time_string + "</time> </footer></body></html>";
-}
 
 int64_t b10_to_int(std::string in_value) {
 	int64_t result = 0;
@@ -228,7 +208,7 @@ ahc_echo(
 		auto con_info = new connection_info_struct;
 
 		if (0 == strcmp (method, "POST")) {
-			if (strcmp(url, "/new_user") == 0) {
+			if (strcmp(url, url_gen::new_user().c_str()) == 0) {
 				con_info->postprocessor = MHD_create_post_processor (
 					connection,
 					POSTBUFFERSIZE,
@@ -259,17 +239,17 @@ ahc_echo(
 
 	connection_info_struct *con_info = (connection_info_struct*) *req_cls;
 
-	const char * session = MHD_lookup_connection_value(
+	const char * detected_session = MHD_lookup_connection_value(
 		connection,
 		MHD_COOKIE_KIND,
 		"SESSION"
 	);
 
 	printf("session detected\n");
-	printf("%s", session);
+	printf("%s", detected_session);
 
-	if (session) {
-		std::string session_string = session;
+	if (detected_session) {
+		std::string session_string = detected_session;
 		auto iterator = session_to_user.find(session_string);
 		if (iterator != session_to_user.end()){
 			con_info->user = iterator->second;
@@ -306,34 +286,20 @@ ahc_echo(
 	if (is_get) {
 		if (0 != *upload_data_size)
 			return MHD_NO; /* upload data in a GET!? */
-
-
-		// auto page = make_main_page();
 		if (con_info->user) {
-			if (0 == strcmp(url, "/building_type")) {
-				return respond_building_type(connection, common_keys.id);
+			if (0 == strcmp(url, url_gen::building_type().c_str())) {
+				return send_building_type_page(connection, con_info->current_page, common_keys.id);
 			}
-			if (0 == strcmp(url, "/building")) {
-				return respond_building(connection, common_keys.id);
+			if (0 == strcmp(url, url_gen::building().c_str())) {
+				return send_building_page(connection, con_info->current_page, common_keys.id);
 			}
-			auto page = make_report(con_info->user);
+			return send_main_page(connection, con_info->current_page, con_info->user);
+		} else {
+			auto page = login_page();
 			response = MHD_create_response_from_buffer (
 				strlen(page.c_str()),
 				(void*) page.c_str(),
 				MHD_RESPMEM_MUST_COPY
-			);
-			ret = MHD_queue_response(
-				connection,
-				MHD_HTTP_OK,
-				response
-			);
-			MHD_destroy_response(response);
-			return ret;
-		} else {
-			response = MHD_create_response_from_buffer (
-				strlen(MAIN_STATIC_PAGE.c_str()),
-				(void*) MAIN_STATIC_PAGE.c_str(),
-				MHD_RESPMEM_PERSISTENT
 			);
 			ret = MHD_queue_response(
 				connection,
@@ -353,11 +319,11 @@ ahc_echo(
 			*upload_data_size = 0;
 			return MHD_YES;
 		}
-		if (strcmp(url, "/set_transfer") == 0) {
+		if (strcmp(url, url_gen::set_transfer().c_str()) == 0) {
 			return POST_request_transfer(connection, con_info);
-		} else if (strcmp(url, "/demand/create") == 0) {
+		} else if (strcmp(url, url_gen::new_demand().c_str()) == 0) {
 			return POST_request_demand(connection, con_info);
-		} else if (strcmp(url, "/build") == 0) {
+		} else if (strcmp(url, url_gen::new_building().c_str()) == 0) {
 			if(!con_info->user) {
 				return send_page_from_memory(
 					connection,
@@ -398,7 +364,7 @@ ahc_echo(
 			MHD_destroy_response(response);
 			return ret;
 		}
-		if (strcmp(url, "/new_user") == 0) {
+		if (strcmp(url, url_gen::new_user().c_str()) == 0) {
 			if (con_info->user) {
 				auto session = generate_session(con_info->user);
 				char key_value[SESSIONSIZE+16];
@@ -496,15 +462,20 @@ main(
 
 	struct MHD_Daemon * d;
 
-	if (argc != 2)
+	if (argc != 3)
 	{
-		printf("%s PORT\n",
-		argv[0]);
+		printf(
+			"%s URL_PREFIX PORT\n",
+			argv[0]
+		);
 		return 1;
 	}
+
+	url_gen::set_base_prefix(argv[1]);
+
 	d = MHD_start_daemon(
 		MHD_USE_EPOLL | MHD_USE_INTERNAL_POLLING_THREAD,
-		atoi(argv[1]),
+		atoi(argv[2]),
 		NULL,
 		NULL,
 		&ahc_echo,

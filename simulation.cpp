@@ -2,6 +2,7 @@
 #include "data.hpp"
 #include "data_ids.hpp"
 #include "unordered_dense.h"
+#include "url.hpp"
 #include "ve.hpp"
 #include "ve_avx2.hpp"
 #include <cmath>
@@ -199,9 +200,7 @@ std::string building_name(dcon::building_id bid) {
 		+ activity_string;
 }
 std::string building_link(dcon::building_id bid) {
-	return "<a href=\"/building?id="
-		+ std::to_string(bid.index())
-		+ "\">" + building_name(bid) + "</a>";
+	return "<a href=\"" + url_gen::building(bid.index()) + "\">" + building_name(bid) + "</a>";
 }
 
 std::string retrieve_user_report_body(dcon::user_id user) {
@@ -249,7 +248,7 @@ std::string retrieve_building_type_list() {
 	std::string result;
 	result += "<ul>";
 	state.for_each_building_type([&](auto btid){
-		result += "<li><a href=\"/building_type?id=" + std::to_string(btid.index())+ "\">" + get_text(all_text, state.building_type_get_name(btid)) + "</a></li>";
+		result += "<li><a href=\"" + url_gen::building_type(btid.index()) + "\">" + get_text(all_text, state.building_type_get_name(btid)) + "</a></li>";
 	});
 	result += "</ul>";
 
@@ -257,7 +256,7 @@ std::string retrieve_building_type_list() {
 }
 
 std::string navigation_header() {
-	return "<header><h1>Navigation</h1><ul><li>Go <a href=\"/\">back to main page</a></li></ul></header>";
+	return "<header><h1>Navigation</h1><ul><li>Go <a href=\"" + url_gen::main_mage() + "\">back to main page</a></li></ul></header>";
 }
 
 std::string footer() {
@@ -282,12 +281,12 @@ std::string trade_section(dcon::user_id user) {
 		result += "</td><td>";
 		result += to_string(price);
 		result += "</td><td>";
-		result += "<a href=\"/demand/details?id=" + std::to_string(demand.index()) + "\">Details</a>";
+		result += "<a href=\"" + url_gen::demand(demand.index()) + "\">Details</a>";
 		result += "</td></tr>";
 	});
 	result += "</table>";
 
-	result += "<form action=\"/demand/create\" method=\"post\">";
+	result += "<form action=\"" + url_gen::new_demand() + "\" method=\"post\">";
 	result += "<p><input type=\"number\" min=\"1\" name=\"volume\" id=\"volume_demand\">";
 	result += "<label for=\"volume_demand\">Demanded volume</label></p>";
 	result += "<p><input type=\"number\" min=\"1\" name=\"price\" id=\"price_demand\">";
@@ -302,21 +301,21 @@ std::string trade_section(dcon::user_id user) {
 
 	result += "<table><caption>Supply</caption><thead><tr><th scope=\"col\">Commodity</th><th scope=\"col\">Price</th><th scope=\"col\">Details</th></tr></thead>";
 	state.user_for_each_supply_ownership_as_owner(user, [&](auto o){
-		dcon::supply_id demand = state.supply_ownership_get_supply(o);
+		dcon::supply_id supply = state.supply_ownership_get_supply(o);
 
-		auto cid = state.supply_get_cid(demand);
-		auto price = state.supply_get_price(demand);
+		auto cid = state.supply_get_cid(supply);
+		auto price = state.supply_get_price(supply);
 		result +="<tr><td>";
 		result += get_text(all_text, state.commodity_get_name(cid));
 		result += "</td><td>";
 		result += to_string(price);
 		result += "</td><td>";
-		result += "<a href=\"/supply/details?id=" + std::to_string(demand.index()) + "\">Details</a>";
+		result += "<a href=\"" + url_gen::supply(supply.index()) + "\">Details</a>";
 		result += "</td></tr>";
 	});
 	result += "</table>";
 
-	result += "<form action=\"/supply/create\" method=\"post\">";
+	result += "<form action=\"" + url_gen::new_supply() + "\" method=\"post\">";
 	result += "<p><input type=\"number\" min=\"1\" name=\"volume\" id=\"volume_supply\">";
 	result += "<label for=\"volume_supply\">Supplied volume</label></p>";
 	result += "<p><input type=\"number\" min=\"1\" name=\"price\" id=\"price_supply\">";
@@ -383,7 +382,7 @@ std::string make_building_report(dcon::building_id bid) {
 	}
 
 	result += "<h3>Set up incoming transfer</h3>";
-	result += "<form action=\"/set_transfer\" method=\"post\">";
+	result += "<form action=\"" + url_gen::set_transfer() + "\" method=\"post\">";
 	result += "<input name=\"id2\" type=\"hidden\" value=\"" + std::to_string(storage.id.index()) + "\">";
 	result += "<p><label for=\"source_storage_select\">Select source storage</label><br>";
 	result += "<select name=\"id\" id=\"source_storage_select\">";
@@ -435,7 +434,7 @@ std::string make_building_report(dcon::building_id bid) {
 	}
 
 	result += "<h3>Set up outgoing transfer</h3>";
-	result += "<form action=\"/set_transfer\" method=\"post\">";
+	result += "<form action=\"" + url_gen::set_transfer() + "\" method=\"post\">";
 	result += "<input name=\"id\" type=\"hidden\" value=\"" + std::to_string(storage.id.index()) + "\">";
 	result += "<p><label for=\"target_storage_select\">Select target storage</label><br>";
 	result += "<select name=\"id2\" id=\"target_storage_select\">";
@@ -486,7 +485,7 @@ std::string make_building_report(dcon::building_id bid) {
 	} else {
 		result += "<h2>Operation control</h2>";
 
-		result += "<form action=\"/edit_building\" method=\"post\">";
+		result += "<form action=\"" + url_gen::set_building() + "\" method=\"post\">";
 		result += "<input name=\"id\" type=\"hidden\" value=\"" + std::to_string(bid.index()) + "\"><br>";
 		result += "<label for=\"activity_select\">Select activity of the building</label>";
 		result += "<select name=\"id2\" id=\"activity_select\">";
@@ -528,7 +527,7 @@ std::string make_building_type_report(dcon::building_type_id btid) {
 	result += "<h2>Construction</h2>";
 
 	result +=
-		"<form action=\"/build\" method=\"post\"><input name=\"id\" type=\"hidden\" value=\""
+		"<form action=\"" + url_gen::new_building() + "\" method=\"post\"><input name=\"id\" type=\"hidden\" value=\""
 		+ std::to_string(btid.index())
 		+ "\"><p><button type=\"submit\">Request construction</button></p></form>";
 
@@ -537,7 +536,7 @@ std::string make_building_type_report(dcon::building_type_id btid) {
 	for (int i = 0; i < max_activities; i++) {
 		auto activity = state.building_type_get_activities(btid, i);
 		if (!activity) break;
-		result += "<li><a href=\"/activity?id=" + std::to_string(activity.id.index())+ "\">"
+		result += "<li><a href=\"" + url_gen::activity(activity.id.index()) + "\">"
 		+ get_text(all_text, state.activity_get_name(activity))
 		+ "</a></li>";
 	}
