@@ -77,6 +77,11 @@ object{
 		name{storage}
 		type{storage_id}
 	}
+
+	property{
+		name{development_tickets}
+		type{uint32_t}
+	}
 }
 
 

@@ -104,6 +104,7 @@ void init_simulation() {
 
 		state.building_type_resize_activities(max_activities);
 
+
 		auto extractor = state.create_building_type();
 		state.building_type_set_name(extractor, new_text(all_text, "Extractor"));
 		state.building_type_set_activities(extractor, 0, extract_basic);
@@ -162,6 +163,7 @@ dcon::user_id create_or_get_user(std::string name, uint8_t password_hash[HASHLEN
 			state.user_set_pwd_hash(user, i, password_hash[i]);
 		}
 		state.user_set_wealth(user, 1000);
+		state.user_set_development_tickets(user, 10);
 
 		auto storage = state.create_storage();
 		state.storage_set_owner(storage, user);
