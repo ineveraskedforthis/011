@@ -76,30 +76,28 @@ std::string inline wrap_into_anchor(std::string url, std::string text) {
 }
 
 static enum MHD_Result
-send_link_to_current_page (
+send_link_to_main_menu (
 	struct MHD_Connection *connection,
 	connection_info_struct * con_info,
 	int status_code
 ) {
 	std::string result = "<html><head><title>Request accepted</title></head><body><h1>Request accepted</h1>Meanwhile, you can ";
 	auto& page = con_info->current_page;
-	switch (page.page) {
-	case page_type::main:
-		result += wrap_into_anchor(url_gen::main_mage(), "return back to the main menu");
-		// return send_main_page(connection, page, con_info->user);
-		break;
-	case page_type::building:
-		// result += wrap_into_anchor(url_gen::building(page.id.value()), "return back to the building page") + " or ";
-		result += wrap_into_anchor(url_gen::main_mage(), "go to the main menu");
-		break;
-	case page_type::building_type:
-		// result += wrap_into_anchor(url_gen::building_type(page.id.value()), "return back to the building page") + " or ";
-		result += wrap_into_anchor(url_gen::main_mage(), "go to the main menu");
-		break;
-	}
+	result += wrap_into_anchor(url_gen::main_mage(), "return back to the main menu");
 	return send_page_copy(connection, result.c_str(), status_code);
 }
 
+static enum MHD_Result
+send_link_to_gacha (
+	struct MHD_Connection *connection,
+	connection_info_struct * con_info,
+	int status_code
+) {
+	std::string result = "<html><head><title>Request accepted</title></head><body><h1>Request accepted</h1>Meanwhile, you can ";
+	auto& page = con_info->current_page;
+	result += wrap_into_anchor(url_gen::gacha_page(), "return back to the RGO Acquisition page");
+	return send_page_copy(connection, result.c_str(), status_code);
+}
 
 MHD_Result POST_request_demand(
 	struct MHD_Connection * connection,
@@ -113,7 +111,7 @@ MHD_Result POST_request_demand(
 		con_info->volume
 	);
 	if (!result) lack_of_storage(connection);
-	return send_link_to_current_page(connection, con_info, MHD_HTTP_ACCEPTED);
+	return send_link_to_main_menu(connection, con_info, MHD_HTTP_ACCEPTED);
 }
 
 MHD_Result POST_request_transfer(
@@ -129,7 +127,33 @@ MHD_Result POST_request_transfer(
 		con_info->volume
 	);
 	if (!result) lack_of_storage(connection);
-	return send_link_to_current_page(connection, con_info, MHD_HTTP_ACCEPTED);
+	return send_link_to_main_menu(connection, con_info, MHD_HTTP_ACCEPTED);
+}
+
+MHD_Result POST_request_gacha_one(
+	struct MHD_Connection * connection,
+	connection_info_struct * con_info
+) {
+	if(!con_info->user) return not_logged_in(connection);
+	auto result = request_gacha(
+		con_info->user,
+		1
+	);
+	if (!result) lack_of_storage(connection);
+	return send_link_to_gacha(connection, con_info, MHD_HTTP_ACCEPTED);
+}
+
+MHD_Result POST_request_gacha_ten(
+	struct MHD_Connection * connection,
+	connection_info_struct * con_info
+) {
+	if(!con_info->user) return not_logged_in(connection);
+	auto result = request_gacha(
+		con_info->user,
+		10
+	);
+	if (!result) lack_of_storage(connection);
+	return send_link_to_gacha(connection, con_info, MHD_HTTP_ACCEPTED);
 }
 
 MHD_Result send_main_page(
@@ -139,6 +163,16 @@ MHD_Result send_main_page(
 ) {
 	current_page.page = page_type::main;
 	auto page = make_report(user);
+	return send_page_copy(connection, page.c_str(), MHD_HTTP_OK);
+}
+
+MHD_Result send_gacha_page(
+	struct MHD_Connection * connection,
+	page_ref& current_page,
+	dcon::user_id user
+) {
+	current_page.page = page_type::gacha;
+	auto page = resources_gacha(user);
 	return send_page_copy(connection, page.c_str(), MHD_HTTP_OK);
 }
 

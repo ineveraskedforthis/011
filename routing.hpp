@@ -10,7 +10,7 @@ enum class connection_type {
 };
 
 enum class page_type {
-	main, building, building_type
+	main, building, building_type, gacha
 };
 
 struct page_ref {
@@ -66,4 +66,20 @@ MHD_Result POST_request_demand(
 MHD_Result send_main_page(
 	struct MHD_Connection * connection,
 	page_ref& current_page, dcon::user_id user
+);
+
+MHD_Result send_gacha_page(
+	struct MHD_Connection * connection,
+	page_ref& current_page,
+	dcon::user_id user
+);
+
+MHD_Result POST_request_gacha_one(
+	struct MHD_Connection * connection,
+	connection_info_struct * con_info
+);
+
+MHD_Result POST_request_gacha_ten(
+	struct MHD_Connection * connection,
+	connection_info_struct * con_info
 );

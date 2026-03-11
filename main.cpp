@@ -293,6 +293,9 @@ ahc_echo(
 			if (0 == strcmp(url, url_gen::building().c_str())) {
 				return send_building_page(connection, con_info->current_page, common_keys.id);
 			}
+			if (0 == strcmp(url, url_gen::gacha_page().c_str())) {
+				return send_gacha_page(connection, con_info->current_page, con_info->user);
+			}
 			return send_main_page(connection, con_info->current_page, con_info->user);
 		} else {
 			auto page = login_page();
@@ -323,6 +326,10 @@ ahc_echo(
 			return POST_request_transfer(connection, con_info);
 		} else if (strcmp(url, url_gen::new_demand().c_str()) == 0) {
 			return POST_request_demand(connection, con_info);
+		} else if (strcmp(url, url_gen::one_pull().c_str()) == 0) {
+			return POST_request_gacha_one(connection, con_info);
+		} else if (strcmp(url, url_gen::ten_pull().c_str()) == 0) {
+			return POST_request_gacha_ten(connection, con_info);
 		} else if (strcmp(url, url_gen::new_building().c_str()) == 0) {
 			if(!con_info->user) {
 				return send_page_from_memory(

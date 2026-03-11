@@ -158,6 +158,14 @@ object{
 		name{construction}
 		type{array{uint8_t}{commodity_id}}
 	}
+	property{
+		name{can_be_constructed}
+		type{bitfield}
+	}
+	property{
+		name{gacha_weight}
+		type{float}
+	}
 }
 
 object{

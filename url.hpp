@@ -7,6 +7,7 @@ void set_base_prefix(std::string prefix);
 
 // GET
 std::string main_mage();
+std::string gacha_page();
 std::string building();
 std::string building_type();
 std::string building(int index);
@@ -22,4 +23,7 @@ std::string supply(int index);
 std::string demand(int index);
 std::string new_demand();
 std::string new_supply();
+
+std::string ten_pull();
+std::string one_pull();
 }

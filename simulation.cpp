@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <mutex>
 #include <oneapi/tbb/parallel_for.h>
+#include <random>
 #include <string>
 #include <sys/types.h>
 #include <vector>
@@ -18,6 +19,8 @@
 static dcon::data_container state {};
 
 std::mutex buildings_mutex;
+std::mutex gacha_mutex;
+std::mutex gacha_tickets_mutex;
 std::mutex savings_mutex;
 std::mutex storage_mutex;
 std::mutex user_mutex;
@@ -31,6 +34,11 @@ static constexpr uint8_t max_outputs = 8;
 static constexpr uint8_t max_activities = 8;
 
 static constexpr __uint128_t building_permission_cost = 100;
+
+
+uint32_t pulls_count(dcon::user_id user) {
+	return state.user_get_development_tickets(user);
+}
 
 
 struct text_collection {
@@ -77,6 +85,13 @@ void init_simulation() {
 		state.commodity_set_name(material_basic, new_text(all_text, "Basic material"));
 		state.commodity_set_inversed_density(material_basic, 100);
 
+		auto ore_basic_source  = state.create_commodity();
+		state.commodity_set_name(ore_basic_source, new_text(all_text, "Basic ore vein"));
+		state.commodity_set_inversed_density(ore_basic_source, 125);
+
+		auto fuel_basic_source  = state.create_commodity();
+		state.commodity_set_name(fuel_basic_source, new_text(all_text, "Basic fuel source"));
+		state.commodity_set_inversed_density(fuel_basic_source, 125);
 
 		state.storage_resize_current(state.commodity_size());
 		state.storage_resize_limit(state.commodity_size());
@@ -90,6 +105,18 @@ void init_simulation() {
 
 		// buildings and activities
 
+		auto provide_ore = state.create_activity();
+		state.activity_set_name(provide_ore, new_text(all_text, "Ore source"));
+		state.activity_set_output(provide_ore, 0, ore_basic_source);
+		state.activity_set_output_amount(provide_ore, 0, 1);
+
+		auto extract_basic = state.create_activity();
+		state.activity_set_name(extract_basic, new_text(all_text, "Extract basic ore"));
+		state.activity_set_input(extract_basic, 0, ore_basic_source);
+		state.activity_set_input_amount(extract_basic, 0, 1);
+		state.activity_set_output(extract_basic, 0, ore_basic);
+		state.activity_set_output_amount(extract_basic, 0, 1);
+
 		auto refine_basic = state.create_activity();
 		state.activity_set_name(refine_basic, new_text(all_text, "Refine basic ore"));
 		state.activity_set_input(refine_basic, 0, ore_basic);
@@ -97,25 +124,27 @@ void init_simulation() {
 		state.activity_set_output(refine_basic, 0, material_basic);
 		state.activity_set_output_amount(refine_basic, 0, 1);
 
-		auto extract_basic = state.create_activity();
-		state.activity_set_name(extract_basic, new_text(all_text, "Extract basic ore"));
-		state.activity_set_output(extract_basic, 0, ore_basic);
-		state.activity_set_output_amount(extract_basic, 0, 1);
-
 		state.building_type_resize_activities(max_activities);
 
+		auto ore_vein = state.create_building_type();
+		state.building_type_set_name(ore_vein, new_text(all_text, "Ore vein"));
+		state.building_type_set_activities(ore_vein, 0, provide_ore);
+		state.building_type_set_can_be_constructed(ore_vein, false);
+		state.building_type_set_gacha_weight(ore_vein, 10.f);
 
 		auto extractor = state.create_building_type();
 		state.building_type_set_name(extractor, new_text(all_text, "Extractor"));
 		state.building_type_set_activities(extractor, 0, extract_basic);
 		state.building_type_set_construction(extractor, 0, ore_basic);
 		state.building_type_set_construction_amount(extractor, 0, 10);
+		state.building_type_set_can_be_constructed(extractor, true);
 
 		auto refinery = state.create_building_type();
 		state.building_type_set_name(refinery, new_text(all_text, "Refinery"));
 		state.building_type_set_activities(refinery, 0, refine_basic);
 		state.building_type_set_construction(refinery, 0, ore_basic);
 		state.building_type_set_construction_amount(refinery, 0, 50);
+		state.building_type_set_can_be_constructed(refinery, true);
 
 
 		auto fake_supply = state.create_supply();
@@ -209,6 +238,10 @@ std::string retrieve_user_report_body(dcon::user_id user) {
 	std::string result;
 	result += "<h2>Balance</h2>";
 	result += "<p>Savings: " + retrieve_balance(user) + "</p>";
+
+
+	result += "<p>Development Tickets: " + std::to_string(pulls_count(user)) + "</p>";
+	result += "<a href=\"" + url_gen::gacha_page() + "\">Use tickets</a>";
 
 	result += "<h2>Stockpiles</h2>";
 	result += "<ul>";
@@ -502,7 +535,7 @@ std::string make_building_report(dcon::building_id bid) {
 
 		result += "</select>";
 
-		result += "<p><button type=\"submit\">Request construction</button></p>";
+		result += "<p><button type=\"submit\">Set activity</button></p>";
 		result += "</form>";
 	}
 	// result += "<h2>Control<>"
@@ -527,11 +560,15 @@ std::string make_building_type_report(dcon::building_type_id btid) {
 
 
 	result += "<h2>Construction</h2>";
-
-	result +=
-		"<form action=\"" + url_gen::new_building() + "\" method=\"post\"><input name=\"id\" type=\"hidden\" value=\""
-		+ std::to_string(btid.index())
-		+ "\"><p><button type=\"submit\">Request construction</button></p></form>";
+	if (state.building_type_get_can_be_constructed(btid)) {
+		result +=
+			"<form action=\"" + url_gen::new_building() + "\" method=\"post\"><input name=\"id\" type=\"hidden\" value=\""
+			+ std::to_string(btid.index())
+			+ "\"><p><button type=\"submit\">Request construction</button></p></form>";
+	} else {
+		result +=
+			"This building can't be constructed";
+	}
 
 	result += "<h2>Potential activities</h2>";
 	result += "<ul>";
@@ -578,6 +615,7 @@ bool request_new_building(dcon::user_id user, dcon::building_type_id building_ty
 	std::lock_guard<std::mutex> lock {buildings_mutex};
 
 	if (!state.building_type_is_valid(building_type)) return false;
+	if (!state.building_type_get_can_be_constructed(building_type)) return false;
 
 	auto count = 0;
 	state.user_for_each_ownership(user, [&](auto o){count++;});
@@ -600,9 +638,10 @@ bool request_transfer(dcon::user_id user, dcon::storage_id s,  dcon::storage_id 
 	if (volume < 0) return false;
 	if (volume > 5) return false;
 
-	std::lock_guard<std::mutex> lock {transfer_mutex};
-	std::lock_guard<std::mutex> lock2 {storage_mutex};
-	std::lock_guard<std::mutex> lock3 {user_mutex};
+	std::lock(transfer_mutex, storage_mutex, user_mutex);
+	std::lock_guard<std::mutex> lock (transfer_mutex, std::adopt_lock);
+	std::lock_guard<std::mutex> lock2 (storage_mutex, std::adopt_lock);
+	std::lock_guard<std::mutex> lock3 (user_mutex, std::adopt_lock);
 
 	if (!state.storage_is_valid(s)) return false;
 	if (!state.storage_is_valid(t)) return false;
@@ -627,8 +666,9 @@ struct demand_request {
 };
 safe_ring_queue<demand_request> demand_requests_queue {};
 bool request_demand(dcon::user_id user, dcon::commodity_id cid, __uint128_t price, __uint128_t volume) {
-	std::lock_guard<std::mutex> lock {user_mutex};
-	std::lock_guard<std::mutex> lock2 {demand_mutex};
+	std::lock(user_mutex, demand_mutex);
+	std::lock_guard<std::mutex> lock (user_mutex, std::adopt_lock);
+	std::lock_guard<std::mutex> lock2 (demand_mutex, std::adopt_lock);
 
 	if (!state.user_is_valid(user)) return false;
 	if (!state.commodity_is_valid(cid)) return false;
@@ -651,8 +691,9 @@ struct supply_request {
 };
 safe_ring_queue<demand_request> supply_requests_queue {};
 bool request_supply(dcon::user_id user, dcon::commodity_id cid, __uint128_t price, __uint128_t volume) {
-	std::lock_guard<std::mutex> lock {user_mutex};
-	std::lock_guard<std::mutex> lock2 {supply_mutex};
+	std::lock(user_mutex, supply_mutex);
+	std::lock_guard<std::mutex> lock (user_mutex, std::adopt_lock);
+	std::lock_guard<std::mutex> lock2 (supply_mutex, std::adopt_lock);
 
 	if (!state.user_is_valid(user)) return false;
 	if (!state.commodity_is_valid(cid)) return false;
@@ -686,12 +727,92 @@ bool request_settings_change(dcon::user_id user, dcon::building_id building, int
 	return building_settings_queue.push({user, building, activity});
 }
 
+struct gacha_request {
+	dcon::user_id user;
+	int count;
+};
+safe_ring_queue<gacha_request> gacha_queue {};
+bool request_gacha(dcon::user_id user, int count) {
+	{
+		std::lock_guard<std::mutex> lock {gacha_tickets_mutex};
+		if(!state.user_is_valid(user)) return false;
+		if (count < 0) return false;
+		if (pulls_count(user) < count) return false;
+	}
+
+	return gacha_queue.push({user, count});
+}
+
+std::random_device global_device;
+std::seed_seq global_seed{
+	global_device(),
+	global_device(),
+	global_device(),
+	global_device(),
+	global_device(),
+	global_device(),
+	global_device(),
+	global_device()
+};
+std::mt19937 global_engine(global_seed);
 
 void simulation_update() {
+	gacha_queue.mtx.lock();
+	for (uint8_t i = gacha_queue.left; i != gacha_queue.right; i++) {
+		std::lock(gacha_tickets_mutex, storage_mutex, user_mutex);
+		std::lock_guard<std::mutex> lock (storage_mutex, std::adopt_lock);
+		std::lock_guard<std::mutex> lock2 (gacha_tickets_mutex, std::adopt_lock);
+		std::lock_guard<std::mutex> lock3 (user_mutex, std::adopt_lock);
+
+		auto& item = gacha_queue.items[i];
+
+		if (state.user_get_development_tickets(item.user) < item.count) {
+			continue;
+		}
+
+		state.user_set_development_tickets(
+			item.user,
+			state.user_get_development_tickets(item.user) - item.count
+		);
+
+		for (int q = 0; q < item.count; q++) {
+			float total_score = 0.f;
+			state.for_each_building_type([&](auto cid){
+				total_score += state.building_type_get_gacha_weight(cid);
+			});
+			std::uniform_real_distribution<float> dist(
+				0, total_score
+			);
+			float current_score = dist(global_engine);
+			float counter = 0.f;
+			dcon::building_type_id result {};
+			state.for_each_building_type([&](auto cid){
+				counter += state.building_type_get_gacha_weight(cid);
+				if (counter > current_score &&  !result) {
+					result = cid;
+				}
+			});
+			// auto storage = state.user_get_storage(item.user);
+			// state.storage_set_current(storage, result, state.storage_get_current(storage, result) + 100);
+
+			auto bid = state.create_building();
+			auto storage = state.create_storage();
+			state.storage_set_attached_to(storage, bid);
+			state.storage_set_owner(storage, item.user);
+			state.building_set_storage(bid, storage);
+			state.building_set_building_type(bid, result);
+			state.force_create_ownership(bid, item.user);
+			state.building_set_constructed(bid, true);
+		}
+	}
+	gacha_queue.left = gacha_queue.right;
+	gacha_queue.mtx.unlock();
+
 	construction_requests_queue.mtx.lock();
 	for (uint8_t i = construction_requests_queue.left; i != construction_requests_queue.right; i++) {
-		std::lock_guard<std::mutex> lock {buildings_mutex};
-		std::lock_guard<std::mutex> lock2 {storage_mutex};
+		std::lock(buildings_mutex, storage_mutex);
+		std::lock_guard<std::mutex> lock (buildings_mutex, std::adopt_lock);
+		std::lock_guard<std::mutex> lock2 (storage_mutex, std::adopt_lock);
 
 		auto& item = construction_requests_queue.items[i];
 		auto w  = state.user_get_wealth(item.user);

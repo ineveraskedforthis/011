@@ -13,6 +13,9 @@ void set_base_prefix(std::string prefix){
 std::string main_mage() {
 	return BASE_PREFIX;
 }
+std::string gacha_page() {
+	return BASE_PREFIX + "gacha";
+}
 std::string building() {
 	return BASE_PREFIX + "building";
 }
@@ -53,5 +56,12 @@ std::string new_demand() {
 }
 std::string new_supply() {
 	return BASE_PREFIX + "supply/create";
+}
+
+std::string ten_pull() {
+	return BASE_PREFIX + "pull_ten";
+}
+std::string one_pull(){
+	return BASE_PREFIX + "pull_one";
 }
 }
